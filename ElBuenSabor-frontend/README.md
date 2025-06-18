@@ -95,7 +95,7 @@ date-fns: Librería para manipular y formatear fechas.
 5.  **Usuarios de Prueba (Crear en Auth0 Dashboard):**
     Para probar la aplicación, crea los siguientes usuarios en tu dashboard de Auth0 (User Management > Users > "+ Create User"):
 
-    * **Contraseña para ambos usuarios:** `#hola1234`
+    * **Contraseña para ambos usuarios:** `Hola1234`
 
     * **Usuario Cliente:**
         * **Email:** `ana.garcia@example.com`
