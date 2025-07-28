@@ -237,6 +237,7 @@ const ArticuloInsumoForm: React.FC<ArticuloInsumoFormProps> = ({ show, handleClo
                   </Form.Group>
                 </Col>
               </Row>
+
               <Form.Group className="mb-3">
                 <Form.Label>Imagen</Form.Label>
                 <Form.Control type="file" onChange={handleFileChange} accept="image/*" />

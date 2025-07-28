@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlusCircle, faMinusCircle } from '@fortawesome/free-solid-svg-icons';
 import { PromocionService } from '../../services/PromocionService';
 import { SucursalService } from '../../services/sucursalService';
-import { ArticuloManufacturadoService } from '../../services/articuloManufacturadoService';
+import { ArticuloManufacturadoService } from '../../services/ArticuloManufacturadoService';
 import { FileUploadService } from '../../services/fileUploadService';
 import { ImagenService } from '../../services/imagenService';
 import type { PromocionResponse, PromocionRequest, ArticuloSimpleResponse, SucursalSimpleResponse, PromocionDetalleRequest, ImagenResponse } from '../../types/types';

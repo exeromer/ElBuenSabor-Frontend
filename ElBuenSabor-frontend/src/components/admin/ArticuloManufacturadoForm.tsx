@@ -17,7 +17,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Modal, Form, Button, Alert, Spinner, Row, Col, InputGroup, Card, ListGroup, Image } from "react-bootstrap";
 import { useSucursal } from "../../context/SucursalContext";
-import { ArticuloManufacturadoService } from "../../services/articuloManufacturadoService";
+import { ArticuloManufacturadoService } from "../../services/ArticuloManufacturadoService";
 import { ArticuloInsumoService } from "../../services/articuloInsumoService";
 import { FileUploadService } from "../../services/fileUploadService";
 import { ImagenService } from "../../services/imagenService";
