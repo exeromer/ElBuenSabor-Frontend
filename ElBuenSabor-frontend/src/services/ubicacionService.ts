@@ -1,58 +1,40 @@
-/**
- * @file ubicacionService.ts
- * @description Provee funciones para interactuar con los endpoints de ubicaciones (Países, Provincias, Localidades) de la API.
- */
-
+import axios from 'axios';
 import apiClient from './apiClient';
-import type { Pais, Provincia, Localidad } from '../types/types';
+import type { PaisResponse, ProvinciaResponse, LocalidadResponse, GeorefLocalidad } from '../types/types';
 
-/**
- * @class UbicacionService
- * @description Clase que encapsula las operaciones de la API relacionadas con Ubicaciones (Países, Provincias, Localidades).
- */
-export class UbicacionService { // <-- Clase exportada
+export class UbicacionService {
+  async getAllPaises(): Promise<PaisResponse[]> {
+    const response = await apiClient.get<PaisResponse[]>('/paises');
+    return response.data;
+  }
 
-  /**
-   * @function getAllPaises
-   * @description Obtiene una lista de todos los países.
-   * @returns {Promise<Pais[]>} Una promesa que resuelve con un array de países.
-   * @throws {Error} Si ocurre un error durante la petición.
-   */
-  async getAllPaises(): Promise<Pais[]> {
+  async getAllProvincias(): Promise<ProvinciaResponse[]> {
+    const response = await apiClient.get<ProvinciaResponse[]>('/provincias');
+    return response.data;
+  }
+
+   static async getLocalidadesPorProvincia(provinciaNombre: string): Promise<GeorefLocalidad[]> {
     try {
-      const response = await apiClient.get<Pais[]>('/paises');
-      return response.data;
+      const response = await axios.get<{ localidades: GeorefLocalidad[] }>(
+        `https://apis.datos.gob.ar/georef/api/localidades`, {
+          params: {
+            provincia: provinciaNombre,
+            campos: 'id,nombre',
+            max: 1000 // Traer hasta 1000 localidades por provincia
+          }
+        }
+      );
+      // Ordenamos alfabéticamente para una mejor experiencia de usuario
+      return response.data.localidades.sort((a, b) => a.nombre.localeCompare(b.nombre));
     } catch (error) {
-      console.error('Error al obtener países:', error);
-      throw error;
+      console.error('Error al obtener localidades desde Georef:', error);
+      throw new Error('No se pudieron cargar las localidades.');
     }
   }
 
-  /**
-   * @function getAllProvincias
-   * @description Obtiene una lista de todas las provincias.
-   * @returns {Promise<Provincia[]>} Una promesa que resuelve con un array de provincias.
-   * @throws {Error} Si ocurre un error durante la petición.
-   */
-  async getAllProvincias(): Promise<Provincia[]> {
+  async getAllLocalidades(): Promise<LocalidadResponse[]> {
     try {
-      const response = await apiClient.get<Provincia[]>('/provincias');
-      return response.data;
-    } catch (error) {
-      console.error('Error al obtener provincias:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * @function getAllLocalidades
-   * @description Obtiene una lista de todas las localidades.
-   * @returns {Promise<Localidad[]>} Una promesa que resuelve con un array de localidades.
-   * @throws {Error} Si ocurre un error durante la petición.
-   */
-  async getAllLocalidades(): Promise<Localidad[]> {
-    try {
-      const response = await apiClient.get<Localidad[]>('/localidades');
+      const response = await apiClient.get<LocalidadResponse[]>('/localidades');
       return response.data;
     } catch (error) {
       console.error('Error al obtener localidades:', error);

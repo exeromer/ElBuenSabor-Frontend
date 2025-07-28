@@ -1,130 +1,229 @@
-/**
- * @file CartContext.tsx
- * @description Contexto de React para gestionar el estado global del carrito de compras.
- * Obtiene el carrito "ligero" del backend y lo enriquece con los detalles completos de cada artículo
- * para que los componentes del UI tengan toda la información necesaria (imágenes, tiempos, etc.).
- * Todas las operaciones (añadir, eliminar, etc.) se sincronizan con la API del backend.
- */
 import React, { createContext, useContext, useState, type ReactNode, useEffect, useCallback } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useUser } from './UserContext';
 import { CarritoService } from '../services/carritoService';
-import { ArticuloManufacturadoService } from '../services/articuloManufacturadoService'; 
-import type { ArticuloManufacturado, CarritoResponseDTO, CartItem } from '../types/types';
+import { ArticuloService } from '../services/ArticuloService';
+import { useSucursal } from './SucursalContext';
+import { PromocionService } from '../services/PromocionService'; // <-- 2. Importamos el servicio de promociones
+import type { ArticuloResponse, CarritoResponse, PromocionResponse, SucursalSimpleResponse } from '../types/types';
+import type { TipoEnvio, FormaPago } from '../types/enums';
 
+
+// Tipo enriquecido para el estado local
+export interface EnrichedCartItem {
+  id: number;
+  articulo: ArticuloResponse;
+  quantity: number;
+  subtotal: number;
+}
+
+// Interfaz del Contexto
 interface CartContextType {
-  cart: CartItem[];
+  cart: EnrichedCartItem[];
+  subtotal: number; // El subtotal bruto (suma de precios de venta)
+  descuento: number; // La suma de TODOS los descuentos aplicados
+  totalFinal: number;
+  totalItems: number;
   isLoading: boolean;
   error: string | null;
-  addToCart: (item: ArticuloManufacturado, quantity?: number) => Promise<void>;
-  removeFromCart: (itemId: number) => Promise<void>;
-  updateQuantity: (itemId: number, newQuantity: number) => Promise<void>;
+  isCartOpen: boolean;
+
+  tipoEnvio: TipoEnvio;
+  formaPago: FormaPago;
+  setTipoEnvio: (tipo: TipoEnvio) => void;
+  setFormaPago: (forma: FormaPago) => void;
+
+  openCart: () => void;
+  closeCart: () => void;
+  addToCart: (articulo: ArticuloResponse, quantity?: number) => Promise<void>;
+  removeFromCart: (cartItemId: number) => Promise<void>;
+  updateQuantity: (cartItemId: number, newQuantity: number) => Promise<void>;
   clearCart: () => Promise<void>;
-  getCartItemCount: () => number;
-  getItemQuantity: (articuloId: number) => number;
-  getCartTotal: () => number;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-const carritoService = new CarritoService();
-const articuloManufacturadoService = new ArticuloManufacturadoService(); 
-
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { isAuthenticated } = useAuth0();
   const { cliente, isLoading: isUserLoading } = useUser();
+  const { selectedSucursal } = useSucursal();
 
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [backendCart, setBackendCart] = useState<CarritoResponseDTO | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [cart, setCart] = useState<EnrichedCartItem[]>([]);
+  const [promocionesActivas, setPromocionesActivas] = useState<PromocionResponse[]>([]);
+  const [subtotal, setSubtotal] = useState<number>(0);
+  const [descuento, setDescuento] = useState<number>(0);
+  const [totalFinal, setTotalFinal] = useState<number>(0);
+  const [tipoEnvio, setTipoEnvio] = useState<TipoEnvio>('DELIVERY');
+  const [formaPago, setFormaPago] = useState<FormaPago>('MERCADO_PAGO');
+  const [totalItems, setTotalItems] = useState<number>(0);
+  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const enrichCartItems = useCallback(async (lightCart: CarritoResponseDTO): Promise<CartItem[]> => {
-    if (!lightCart.items || lightCart.items.length === 0) {
-      return [];
-    }
-  
-    // 1. Obtener todos los IDs de artículos que necesitamos buscar
-    const articleIds = lightCart.items.map(item => item.articuloId);
-    if (articleIds.length === 0) return [];
 
-    // 2. Crear un array de promesas para obtener los detalles de cada artículo
-    const promises = articleIds.map(id =>
-      articuloManufacturadoService.getArticuloManufacturadoById(id)
-    );
-  
-    try {
-      // 3. Esperar a que todas las búsquedas de detalles se completen
-      const articulosDetallados = await Promise.all(promises);
-      
-      // 4. Crear un mapa para buscar fácilmente los detalles por ID
-      const articulosMap = new Map<number, ArticuloManufacturado>();
-      articulosDetallados.forEach(art => {
-        if (art && art.id) {
-          articulosMap.set(art.id, art);
+  const calcularTotales = useCallback((
+    currentCart: EnrichedCartItem[],
+    promos: PromocionResponse[],
+    currentTipoEnvio: TipoEnvio,
+    currentFormaPago: FormaPago
+  ) => {
+    const subtotalBruto = currentCart.reduce((sum, item) => sum + (item.articulo.precioVenta * item.quantity), 0);
+    let descuentoPromociones = 0;
+
+    // Clonamos el carrito 
+    const itemsParaDescuento = new Map(currentCart.map(item => [item.articulo.id, item.quantity]));
+    promos.forEach(promo => {
+      let seAplicaPromo = true;
+      let costoOriginalCombo = 0;
+
+      // 1. Verificar si tenemos todos los artículos para la promoción (especialmente para combos)
+      for (const detalle of promo.detallesPromocion) {
+        const cantidadEnCarrito = itemsParaDescuento.get(detalle.articulo.id) || 0;
+        if (cantidadEnCarrito < detalle.cantidad) {
+          seAplicaPromo = false;
+          break;
         }
-      });
-  
-      // 5. Construir el array "enriquecido" de forma segura
-      const richCartItems: CartItem[] = [];
-      lightCart.items.forEach(item => {
-        // Solo incluimos el ítem si tiene un ID y hemos encontrado sus detalles
-        if (item.id !== undefined && articulosMap.has(item.articuloId)) {
-          richCartItems.push({
-            id: item.id, // El ID ahora es un número garantizado
-            articulo: articulosMap.get(item.articuloId)!, // El '!' es seguro por el .has()
-            quantity: item.cantidad,
+      }
+
+      if (seAplicaPromo) {
+        // Determinamos cuántas veces se puede aplicar la promoción
+        let vecesAplicable = Infinity;
+        promo.detallesPromocion.forEach(detalle => {
+          const cantidadEnCarrito = itemsParaDescuento.get(detalle.articulo.id) || 0;
+          vecesAplicable = Math.min(vecesAplicable, Math.floor(cantidadEnCarrito / detalle.cantidad));
+        });
+
+        if (vecesAplicable > 0 && vecesAplicable !== Infinity) {
+          // "Consumimos" los artículos del mapa
+          promo.detallesPromocion.forEach(detalle => {
+            itemsParaDescuento.set(detalle.articulo.id, (itemsParaDescuento.get(detalle.articulo.id)!) - (detalle.cantidad * vecesAplicable));
+            costoOriginalCombo += detalle.articulo.precioVenta * detalle.cantidad;
           });
+
+          // 2. Calcular descuento según el tipo de promoción
+          if (promo.tipoPromocion === 'CANTIDAD' || promo.tipoPromocion === 'COMBO') {
+            if (promo.precioPromocional) {
+              descuentoPromociones += (costoOriginalCombo - promo.precioPromocional) * vecesAplicable;
+            }
+          } else if (promo.tipoPromocion === 'PORCENTAJE') {
+            if (promo.porcentajeDescuento) {
+              descuentoPromociones += (costoOriginalCombo * (promo.porcentajeDescuento / 100)) * vecesAplicable;
+            }
+          }
         }
-      });
-  
-      return richCartItems;
+      }
+    });
+
+    const subtotalConPromos = subtotalBruto - descuentoPromociones;
+    let descuentoAdicional = 0;
+
+    // 3. Aplicar descuento por pago en efectivo
+    if (currentTipoEnvio === 'TAKEAWAY' && currentFormaPago === 'EFECTIVO') {
+      descuentoAdicional = subtotalConPromos * 0.10;
+    }
+
+    // 4. Actualizar estados
+    setSubtotal(subtotalBruto);
+    setDescuento(descuentoPromociones + descuentoAdicional);
+    setTotalFinal(subtotalConPromos - descuentoAdicional);
+    setTotalItems(currentCart.reduce((sum, item) => sum + item.quantity, 0));
+  }, []);
+
+
+  const enrichCartItems = useCallback(async (backendCart: CarritoResponse): Promise<EnrichedCartItem[]> => {
+    if (!backendCart.items || backendCart.items.length === 0) return [];
+    try {
+      const promises = backendCart.items.map(item => ArticuloService.getById(item.articuloId));
+      const articulosDetallados = await Promise.all(promises);
+      const articulosMap = new Map(articulosDetallados.map(art => [art.id, art]));
+      return backendCart.items.map(item => ({
+        id: item.id,
+        quantity: item.cantidad,
+        subtotal: item.subtotalItem,
+        articulo: articulosMap.get(item.articuloId)!,
+      })).filter(item => item.articulo);
     } catch (err) {
       console.error("Error al enriquecer el carrito:", err);
-      setError("No se pudieron cargar los detalles completos de los productos en el carrito.");
+      setError("No se pudieron cargar los detalles de los productos.");
       return [];
     }
   }, []);
 
-  const fetchAndSetCart = useCallback(async () => {
+  useEffect(() => {
+    const loadInitialData = async () => {
+      if (!isUserLoading && isAuthenticated && cliente?.id && selectedSucursal?.id) {
+        setIsLoading(true);
+        try {
+          const [backendCart, todasLasPromos] = await Promise.all([
+            CarritoService.getCarrito(cliente.id),
+            PromocionService.getAll()
+          ]);
+
+          const promosDeSucursal = todasLasPromos.filter((p: PromocionResponse) =>
+            p.estadoActivo && p.sucursales.some((s: SucursalSimpleResponse) => s.id === selectedSucursal.id)
+          );
+          setPromocionesActivas(promosDeSucursal);
+          const richItems = await enrichCartItems(backendCart);
+          setCart(richItems);
+        } catch (err) {
+          console.error("Error al cargar datos del contexto:", err);
+          setError("No se pudo cargar la información del carrito.");
+        } finally {
+          setIsLoading(false);
+        }
+      } else if (!isUserLoading) {
+        setCart([]);
+        setPromocionesActivas([]);
+      }
+    };
+    loadInitialData();
+  }, [isUserLoading, isAuthenticated, cliente, selectedSucursal, enrichCartItems]);
+
+  useEffect(() => {
+    calcularTotales(cart, promocionesActivas, tipoEnvio, formaPago);
+  }, [cart, promocionesActivas, tipoEnvio, formaPago, calcularTotales]);
+
+    const handleCartUpdate = useCallback(async (updatedBackendCart: CarritoResponse) => {
+    const richItems = await enrichCartItems(updatedBackendCart);
+    setCart(richItems);
+  }, [enrichCartItems]);
+
+  //const aplicarDescuentosAdicionales = (tipoEnvio: TipoEnvio, formaPago: FormaPago) => {
+  //  calcularTotales(cart, promocionesActivas, tipoEnvio, formaPago);
+  //};
+
+  const fetchCart = useCallback(async () => {
     if (!isAuthenticated || !cliente?.id) {
       setCart([]);
-      setBackendCart(null);
-      setIsLoading(false);
+      setSubtotal(0);
+      setDescuento(0);
+      setTotalFinal(0);
+      setTotalItems(0);
       return;
     }
     setIsLoading(true);
-    setError(null);
-
     try {
-      const token = await getAccessTokenSilently();
-      const fetchedBackendCart = await carritoService.getCart(cliente.id, token);
-      setBackendCart(fetchedBackendCart);
-      const richItems = await enrichCartItems(fetchedBackendCart);
-      setCart(richItems);
+      const fetchedBackendCart = await CarritoService.getCarrito(cliente.id);
+      await handleCartUpdate(fetchedBackendCart);
     } catch (err) {
       console.error("Error al obtener el carrito:", err);
       setError("No se pudo cargar el carrito.");
-      setCart([]);
-      setBackendCart(null);
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, cliente, getAccessTokenSilently, enrichCartItems]);
+  }, [isAuthenticated, cliente, handleCartUpdate]);
 
   useEffect(() => {
     if (!isUserLoading) {
-      fetchAndSetCart();
+      fetchCart();
     }
-  }, [isUserLoading, fetchAndSetCart]);
-  
-  const handleApiAndUpdateState = async (apiCall: () => Promise<CarritoResponseDTO>) => {
+  }, [isUserLoading, fetchCart]);
+
+  const executeCartAction = async (action: () => Promise<CarritoResponse>) => {
     setIsLoading(true);
     try {
-      const updatedBackendCart = await apiCall();
-      setBackendCart(updatedBackendCart);
-      const richItems = await enrichCartItems(updatedBackendCart);
-      setCart(richItems);
+      const updatedBackendCart = await action();
+      await handleCartUpdate(updatedBackendCart);
     } catch (err) {
       console.error("Error en operación del carrito:", err);
       setError("No se pudo actualizar el carrito.");
@@ -133,50 +232,59 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const addToCart = async (item: ArticuloManufacturado, quantity: number = 1) => {
-    if (!cliente?.id || !item.id) {
-      setError("Debes iniciar sesión para añadir productos.");
-      return;
-    }
-    const token = await getAccessTokenSilently();
-    await handleApiAndUpdateState(() => carritoService.addItem(cliente.id!, { articuloId: item.id!, cantidad: quantity }, token));
+  const addToCart = async (articulo: ArticuloResponse, quantity: number = 1) => {
+    if (!cliente?.id || !articulo.id) return;
+    await executeCartAction(() =>
+      CarritoService.addItem(cliente.id!, { articuloId: articulo.id!, cantidad: quantity })
+    );
   };
-  
-  const updateQuantity = async (itemId: number, newQuantity: number) => {
+
+  const updateQuantity = async (cartItemId: number, newQuantity: number) => {
     if (!cliente?.id) return;
-    const token = await getAccessTokenSilently();
     if (newQuantity > 0) {
-      await handleApiAndUpdateState(() => carritoService.updateItemQuantity(cliente.id!, itemId, { nuevaCantidad: newQuantity }, token));
+      await executeCartAction(() =>
+        CarritoService.updateItemQuantity(cliente.id!, cartItemId, { nuevaCantidad: newQuantity })
+      );
     } else {
-      await handleApiAndUpdateState(() => carritoService.removeItem(cliente.id!, itemId, token));
+      await removeFromCart(cartItemId);
     }
   };
 
-  const removeFromCart = async (itemId: number) => {
-    await updateQuantity(itemId, 0);
+  const removeFromCart = async (cartItemId: number) => {
+    if (!cliente?.id) return;
+    await executeCartAction(() => CarritoService.deleteItem(cliente.id!, cartItemId));
   };
-  
+
   const clearCart = async () => {
     if (!cliente?.id) return;
-    const token = await getAccessTokenSilently();
-    await handleApiAndUpdateState(() => carritoService.clearCart(cliente.id!, token));
+    await executeCartAction(() => CarritoService.clear(cliente.id!));
   };
 
-  const getItemQuantity = (articuloId: number): number => {
-    const item = cart.find(cartItem => cartItem.articulo.id === articuloId);
-    return item ? item.quantity : 0;
-  };
-  
-  const getCartItemCount = (): number => {
-    return cart.reduce((total, item) => total + item.quantity, 0);
-  };
-
-  const getCartTotal = (): number => {
-    return backendCart?.totalCarrito ?? 0;
-  };
+  // Funciones para controlar el modal
+  const openCart = () => setIsCartOpen(true);
+  const closeCart = () => setIsCartOpen(false);
 
   return (
-    <CartContext.Provider value={{ cart, isLoading, error, addToCart, removeFromCart, updateQuantity, clearCart, getCartItemCount, getItemQuantity, getCartTotal }}>
+    <CartContext.Provider value={{
+      cart,
+      subtotal,
+      descuento,
+      totalFinal,
+      totalItems,
+      isLoading,
+      error,
+      isCartOpen,
+      tipoEnvio,
+      formaPago,
+      setTipoEnvio,
+      setFormaPago,
+      openCart,
+      closeCart,
+      addToCart,
+      removeFromCart,
+      updateQuantity,
+      clearCart,
+    }}>
       {children}
     </CartContext.Provider>
   );
@@ -185,7 +293,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 export const useCart = () => {
   const context = useContext(CartContext);
   if (context === undefined) {
-    throw new Error('useCart must be used within a CartProvider');
+    throw new Error('useCart debe ser usado dentro de un CartProvider');
   }
   return context;
 };

@@ -16,12 +16,12 @@
  * @component `PrivateRoute`: Componente de enrutamiento que aplica lógica de autenticación y autorización por roles.
  * @component `Loading`: Componente de carga que se muestra mientras Auth0 inicializa.
  */
-import { BrowserRouter as Router } from 'react-router-dom';
 import Header from './components/common/Header/Header'; 
 import Footer from './components/common/Footer/Footer'; 
 import Loading from './components/auth/Loading'; 
 import { useAuth0 } from '@auth0/auth0-react';
 import AppRoutes from './AppRoutes';
+import {Toaster} from 'react-hot-toast';
 
 /**
  * @function App
@@ -57,17 +57,14 @@ function App() {
   }
 
   return (
-    <Router>
-      {/* Contenedor principal para la aplicación, con layout flexbox */}
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Header /> {/* Componente de la barra de navegación */}
-        {/* Contenido principal de la aplicación. `flex-grow-1` asegura que ocupe todo el espacio disponible */}
-        <main className="flex-grow-1">
-          <AppRoutes />
-        </main>
-        <Footer /> {/* Componente del pie de página */}
-      </div>
-    </Router>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <Toaster/>
+      <Header />
+      <main className="flex-grow-1">
+        <AppRoutes />
+      </main>
+      <Footer />
+    </div>
   );
 }
 

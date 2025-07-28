@@ -1,0 +1,46 @@
+@use '../../../../src/styles/vars' as *
+
+.sucursal-selector-container
+  display: flex
+  align-items: center
+  gap: 0.5rem
+  position: relative
+
+  .sucursal-selector-toggle
+    min-width: max-content
+    white-space: nowrap
+
+
+  .sucursal-selector-label
+    margin-bottom: 0
+    font-weight: 500
+    color: $color-grey
+    white-space: nowrap
+
+  .sucursal-selector-select
+    color: $color-grey
+    border: 2px solid $color-grey
+    border-radius: $br2
+    padding: $p1
+    transition: all 0.2s ease-in-out
+
+    &:hover
+      border-color: $color-stone
+
+    &:focus
+      box-shadow: $shadow
+      border-color: $color-stone
+
+    option
+      color: $color-grey
+      background-color: white
+
+  .cart-open-overlay
+    position: absolute
+    top: 0
+    left: 0
+    right: 0
+    bottom: 0
+    background-color: transparent
+    cursor: not-allowed
+    z-index: 10

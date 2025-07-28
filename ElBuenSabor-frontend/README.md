@@ -17,7 +17,7 @@ Persistencia Local: El carrito de compras se guarda automáticamente en el naveg
 
 📦 Estructura del Proyecto
 El frontend sigue una estructura modular para facilitar la mantenibilidad y escalabilidad:
-```
+
 src/
 ├── assets/                      # Activos estáticos (imágenes, etc.)
 ├── components/                  # Componentes React reutilizables
@@ -45,7 +45,7 @@ src/
 ├── types/                       # Definiciones de tipos e interfaces TypeScript globales (types.ts)
 └── App.tsx                      # Componente raíz de la aplicación y configuración de rutas
 └── main.tsx                     # Punto de entrada de la aplicación
-```
+
 🛠️ Tecnologías Utilizadas
 React: Biblioteca de JavaScript para construir interfaces de usuario.
 TypeScript: Superset de JavaScript que añade tipado estático.
@@ -95,7 +95,7 @@ date-fns: Librería para manipular y formatear fechas.
 5.  **Usuarios de Prueba (Crear en Auth0 Dashboard):**
     Para probar la aplicación, crea los siguientes usuarios en tu dashboard de Auth0 (User Management > Users > "+ Create User"):
 
-    * **Contraseña para ambos usuarios:** `Hola1234`
+    * **Contraseña para ambos usuarios:** `#hola1234`
 
     * **Usuario Cliente:**
         * **Email:** `ana.garcia@example.com`

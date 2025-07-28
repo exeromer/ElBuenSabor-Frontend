@@ -1,5 +1,3 @@
-// Nueva carpeta/ElBuenSabor-frontend/src/services/clienteUsuarioService.ts
-
 /**
  * @file clienteUsuarioService.ts
  * @description Provee funciones para interactuar con los endpoints de Clientes y Usuarios de la API.
@@ -7,9 +5,8 @@
  */
 
 import apiClient, { setAuthToken } from './apiClient';
-import type { Cliente, ClienteRequestDTO, Usuario, UsuarioRequestDTO } from '../types/types';
+import type { ClienteResponse, ClienteRequest, UsuarioResponse, UsuarioRequest } from '../types/types';
 
-// Definimos la clase ClienteUsuarioService
 export class ClienteUsuarioService {
 
     /**
@@ -17,12 +14,12 @@ export class ClienteUsuarioService {
      * @description Obtiene el perfil del cliente actualmente autenticado.
      * El backend identifica al usuario a través del token JWT.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Cliente>} Una promesa que resuelve con los datos del cliente.
+     * @returns {Promise<ClienteResponse>} Una promesa que resuelve con los datos del cliente.
      */
-    async getMyProfile(token: string): Promise<Cliente> {
+    async getMyProfile(token: string): Promise<ClienteResponse> {
         setAuthToken(token);
         try {
-            const response = await apiClient.get<Cliente>('/clientes/perfil');
+            const response = await apiClient.get<ClienteResponse>('/clientes/perfil');
             return response.data;
         } catch (error) {
             console.error("Error al obtener el perfil del cliente:", error);
@@ -34,11 +31,11 @@ export class ClienteUsuarioService {
      * @function getAllUsuarios
      * @description Obtiene todos los usuarios (solo para ADMIN).
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Usuario[]>} Una promesa que resuelve con un array de usuarios.
+     * @returns {Promise<UsuarioResponse[]>} Una promesa que resuelve con un array de usuarios.
      */
-    async getAllUsuarios(token: string): Promise<Usuario[]> {
+    async getAllUsuarios(token: string): Promise<UsuarioResponse[]> {
         setAuthToken(token);
-        const response = await apiClient.get<Usuario[]>('/usuarios');
+        const response = await apiClient.get<UsuarioResponse[]>('/usuarios');
         return response.data;
     }
 
@@ -47,11 +44,11 @@ export class ClienteUsuarioService {
      * @description Obtiene un usuario específico por su ID (solo para ADMIN).
      * @param {number} id - El ID del usuario a obtener.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Usuario>} Una promesa que resuelve con el usuario.
+     * @returns {Promise<UsuarioResponse>} Una promesa que resuelve con el usuario.
      */
-    async getUsuarioById(id: number, token: string): Promise<Usuario> {
+    async getUsuarioById(id: number, token: string): Promise<UsuarioResponse> {
         setAuthToken(token);
-        const response = await apiClient.get<Usuario>(`/usuarios/${id}`);
+        const response = await apiClient.get<UsuarioResponse>(`/usuarios/${id}`);
         return response.data;
     }
 
@@ -60,11 +57,11 @@ export class ClienteUsuarioService {
      * @description Crea un nuevo usuario (solo para ADMIN).
      * @param {UsuarioRequestDTO} data - Los datos del usuario a crear.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Usuario>} Una promesa que resuelve con el usuario creado.
+     * @returns {Promise<UsuarioResponse>} Una promesa que resuelve con el usuario creado.
      */
-    async createUsuario(data: UsuarioRequestDTO, token: string): Promise<Usuario> {
+    async createUsuario(data: UsuarioRequest, token: string): Promise<UsuarioResponse> {
         setAuthToken(token);
-        const response = await apiClient.post<Usuario>('/usuarios', data);
+        const response = await apiClient.post<UsuarioResponse>('/usuarios', data);
         return response.data;
     }
 
@@ -74,11 +71,11 @@ export class ClienteUsuarioService {
      * @param {number} id - El ID del usuario a actualizar.
      * @param {UsuarioRequestDTO} data - Los nuevos datos del usuario.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Usuario>} Una promesa que resuelve con el usuario actualizado.
+     * @returns {Promise<UsuarioResponse>} Una promesa que resuelve con el usuario actualizado.
      */
-    async updateUsuario(id: number, data: UsuarioRequestDTO, token: string): Promise<Usuario> {
+    async updateUsuario(id: number, data: UsuarioRequest, token: string): Promise<UsuarioResponse> {
         setAuthToken(token);
-        const response = await apiClient.put<Usuario>(`/usuarios/${id}`, data);
+        const response = await apiClient.put<UsuarioResponse>(`/usuarios/${id}`, data);
         return response.data;
     }
 
@@ -98,11 +95,11 @@ export class ClienteUsuarioService {
      * @function getAllClientes
      * @description Obtiene todos los clientes (para ADMIN).
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Cliente[]>} Una promesa que resuelve con un array de clientes.
+     * @returns {Promise<ClienteResponse[]>} Una promesa que resuelve con un array de clientes.
      */
-    async getAllClientes(token: string): Promise<Cliente[]> {
+    async getAllClientes(token: string): Promise<ClienteResponse[]> {
         setAuthToken(token);
-        const response = await apiClient.get<Cliente[]>('/clientes');
+        const response = await apiClient.get<ClienteResponse[]>('/clientes');
         return response.data;
     }
 
@@ -111,11 +108,11 @@ export class ClienteUsuarioService {
      * @description Obtiene un cliente específico por su ID (para ADMIN).
      * @param {number} id - El ID del cliente a obtener.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Cliente>} Una promesa que resuelve con el cliente.
+     * @returns {Promise<ClienteResponse>} Una promesa que resuelve con el cliente.
      */
-    async getClienteById(id: number, token: string): Promise<Cliente> {
+    async getClienteById(id: number, token: string): Promise<ClienteResponse> {
         setAuthToken(token);
-        const response = await apiClient.get<Cliente>(`/clientes/${id}`);
+        const response = await apiClient.get<ClienteResponse>(`/clientes/${id}`);
         return response.data;
     }
 
@@ -124,11 +121,11 @@ export class ClienteUsuarioService {
      * @description Crea un nuevo cliente (para ADMIN).
      * @param {ClienteRequestDTO} data - Los datos del cliente a crear.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Cliente>} Una promesa que resuelve con el cliente creado.
+     * @returns {Promise<ClienteResponse>} Una promesa que resuelve con el cliente creado.
      */
-    async createCliente(data: ClienteRequestDTO, token: string): Promise<Cliente> {
+    async createCliente(data: ClienteRequest, token: string): Promise<ClienteResponse> {
         setAuthToken(token);
-        const response = await apiClient.post<Cliente>('/clientes', data);
+        const response = await apiClient.post<ClienteResponse>('/clientes', data);
         return response.data;
     }
 
@@ -138,11 +135,11 @@ export class ClienteUsuarioService {
      * @param {number} id - El ID del cliente a actualizar.
      * @param {ClienteRequestDTO} data - Los nuevos datos del cliente.
      * @param {string} token - El token JWT para la autenticación.
-     * @returns {Promise<Cliente>} Una promesa que resuelve con el cliente actualizado.
+     * @returns {Promise<ClienteResponse>} Una promesa que resuelve con el cliente actualizado.
      */
-    async updateCliente(id: number, data: ClienteRequestDTO, token: string): Promise<Cliente> {
+    async updateCliente(id: number, data: ClienteRequest, token: string): Promise<ClienteResponse> {
         setAuthToken(token);
-        const response = await apiClient.put<Cliente>(`/clientes/${id}`, data);
+        const response = await apiClient.put<ClienteResponse>(`/clientes/${id}`, data);
         return response.data;
     }
 

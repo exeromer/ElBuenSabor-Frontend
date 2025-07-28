@@ -1,47 +1,78 @@
-import React, { useState } from 'react';
-import { Card, Button, Badge } from 'react-bootstrap';
-import type { ArticuloManufacturado } from '../../../types/types';
+import React, { useState, useEffect } from 'react';
+import { Card, Button, Badge, Spinner } from 'react-bootstrap';
+import type { ArticuloManufacturadoResponse } from '../../../types/types';
 import { useCart } from '../../../context/CartContext';
-import { FileUploadService } from '../../../services/fileUploadService';
+import { useUser } from '../../../context/UserContext';
+import { useAuth0 } from '@auth0/auth0-react';
+import { OverlayTrigger, Tooltip } from 'react-bootstrap';
+import { useSucursal } from '../../../context/SucursalContext';
+import { StockInsumoSucursalService } from '../../../services/StockInsumoSucursalService';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faMinus, faTrash, faEye } from '@fortawesome/free-solid-svg-icons';
 import DetalleModal from '../../../components/products/DetalleModal/DetalleModal';
 import './ProductCard.sass';
 
 interface ProductCardProps {
-  product: ArticuloManufacturado;
+  product: ArticuloManufacturadoResponse;
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+  const { isAuthenticated } = useAuth0();
   const { cart, addToCart, updateQuantity, removeFromCart } = useCart();
+  const { selectedSucursal } = useSucursal();
+  const { cliente } = useUser();
+
+  const [isDisponible, setIsDisponible] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const fileUploadService = new FileUploadService();
+
+  useEffect(() => {
+    // Solo verificar si hay una sucursal y un cliente logueado.
+    if (selectedSucursal && product.estadoActivo && cliente) {
+      setIsLoading(true);
+      StockInsumoSucursalService.checkDisponibilidadManufacturado(product, selectedSucursal.id)
+        .then(disponible => {
+          setIsDisponible(disponible);
+        })
+        .catch(error => {
+          console.error(`Error al verificar stock para ${product.denominacion}:`, error);
+          setIsDisponible(false);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    } else {
+      setIsDisponible(false);
+      setIsLoading(false);
+    }
+  }, [product, selectedSucursal, cliente]);
 
   const cartItem = cart.find(item => item.articulo.id === product.id);
   const quantity = cartItem ? cartItem.quantity : 0;
 
   const defaultImage = '/placeholder-food.png';
-  const isAvailable = product.estadoActivo && (typeof product.unidadesDisponiblesCalculadas === 'number' && product.unidadesDisponiblesCalculadas > 0);
+  const imageUrl = product.imagenes?.[0]?.denominacion || defaultImage;
+
 
   const handleAddToCart = () => {
-    if (!isAvailable || !product.id) return;
+    if (!isDisponible || !product.id || isLoading) return;
     addToCart(product, 1);
   };
 
   const handleIncreaseQuantity = () => {
-    if (!isAvailable || !cartItem) return;
+    if (!isDisponible || !cartItem || isLoading) return;
     updateQuantity(cartItem.id, quantity + 1);
   };
 
   const handleDecreaseQuantity = () => {
-    if (!isAvailable || !cartItem) return;
+    if (!isDisponible || !cartItem || isLoading) return;
     if (quantity === 1) {
       removeFromCart(cartItem.id);
     } else {
       updateQuantity(cartItem.id, quantity - 1);
     }
   };
-  
+
   const handleRemoveFromCart = () => {
     if (!cartItem) return;
     removeFromCart(cartItem.id);
@@ -50,20 +81,22 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleShowDetailModal = () => setShowDetailModal(true);
   const handleCloseDetailModal = () => setShowDetailModal(false);
 
+  const BotonAgregar = () => (
+    <Button
+      variant="success"
+      onClick={handleAddToCart}
+      className="product-card-add-button"
+      disabled={!isDisponible || isLoading || !isAuthenticated} // Se deshabilita si no está autenticado
+    >
+      {isLoading ? <Spinner as="span" animation="border" size="sm" /> : 'Agregar'}
+    </Button>
+  );
+
   return (
-    <Card className="h-100 shadow-sm product-card">
-      <Card.Img
-        variant="top"
-        src={
-          product.imagenes && product.imagenes.length > 0
-            ? fileUploadService.getImageUrl(product.imagenes[0].denominacion ?? '')
-            : defaultImage
-        }
-        alt={`Imagen de ${product.denominacion}`}
-        className="product-card-img"
-      />
+    <Card className={`h-100 shadow-sm product-card ${!isDisponible || !product.estadoActivo ? 'unavailable' : ''}`}>
+      <Card.Img variant="top" src={imageUrl} alt={`Imagen de ${product.denominacion}`} className="product-card-img" />
       <Card.Body className="d-flex flex-column product-card-body">
-        <Card.Title className="mb-2 product-card-title" onClick={isAvailable ? handleShowDetailModal : undefined} style={{ cursor: isAvailable ? 'pointer' : 'default' }}>
+        <Card.Title className="mb-2 product-card-title" onClick={isDisponible ? handleShowDetailModal : undefined} style={{ cursor: isDisponible ? 'pointer' : 'default' }}>
           {product.denominacion}
         </Card.Title>
         <Card.Text className="text-muted flex-grow-1 overflow-hidden product-card-description">
@@ -72,27 +105,37 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
         <div className="mt-auto product-card-bottom-section">
           <Card.Text className="product-card-price-display">${product.precioVenta.toFixed(2)}</Card.Text>
-          {!product.estadoActivo ? (
-            <Badge bg="secondary" className="my-2">No Activo</Badge>
-          ) : !isAvailable ? (
+          {isLoading ? (
+            <Badge bg="secondary" className="my-2">Verificando...</Badge>
+          ) : !isDisponible ? (
             <Badge bg="danger" className="my-2">No disponible</Badge>
           ) : null}
 
           <div className="product-card-buttons-group">
             {quantity === 0 ? (
-              <Button variant="success" onClick={handleAddToCart} className="product-card-add-button" disabled={!isAvailable}>
-                Agregar al Carrito
-              </Button>
+              // Renderizamos el botón dentro de un Tooltip si no está autenticado
+              !isAuthenticated ? (
+                <OverlayTrigger
+                  placement="top"
+                  overlay={<Tooltip>Inicia sesión para agregar productos</Tooltip>}
+                >
+                  <span className="d-inline-block">
+                    <BotonAgregar />
+                  </span>
+                </OverlayTrigger>
+              ) : (
+                <BotonAgregar />
+              )
             ) : (
               <div className="product-card-controls-wrapper d-flex align-items-center justify-content-center">
-                <Button variant="outline-danger" onClick={handleRemoveFromCart} className="product-card-control-button product-card-remove-all" disabled={!isAvailable}>
+                <Button variant="outline-danger" onClick={handleRemoveFromCart} className="product-card-control-button product-card-remove-all" disabled={!isDisponible || isLoading}>
                   <FontAwesomeIcon icon={faTrash} />
                 </Button>
-                <Button variant="outline-secondary" onClick={handleDecreaseQuantity} className="product-card-control-button product-card-minus-button" disabled={!isAvailable}>
+                <Button variant="outline-secondary" onClick={handleDecreaseQuantity} className="product-card-control-button product-card-minus-button" disabled={!isDisponible || isLoading}>
                   <FontAwesomeIcon icon={faMinus} />
                 </Button>
                 <span className="mx-2 product-card-quantity-display">{quantity}</span>
-                <Button variant="outline-primary" onClick={handleIncreaseQuantity} className="product-card-control-button product-card-plus-button" disabled={!isAvailable || (typeof product.unidadesDisponiblesCalculadas === 'number' && quantity >= product.unidadesDisponiblesCalculadas)}>
+                <Button variant="outline-primary" onClick={handleIncreaseQuantity} className="product-card-control-button product-card-plus-button" disabled={!isDisponible || isLoading}>
                   <FontAwesomeIcon icon={faPlus} />
                 </Button>
               </div>
@@ -103,7 +146,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
         </div>
       </Card.Body>
-      <DetalleModal product={product} show={showDetailModal} onHide={handleCloseDetailModal} />
+      <DetalleModal product={product} show={showDetailModal} onHide={handleCloseDetailModal} isDisponible={isDisponible} />
     </Card>
   );
 };

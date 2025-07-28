@@ -1,182 +1,138 @@
-// ArticuloInsumoForm.tsx
-/**
- * @file ArticuloInsumoForm.tsx
- * @description Componente de formulario modal para la creación y edición de Artículos Insumo.
- * Permite a los usuarios ingresar y modificar los datos de un artículo insumo, incluyendo
- * su denominación, precios, stock, unidad de medida, categoría, y gestionar una imagen asociada.
- * Utiliza los servicios de API modularizados para interactuar con el backend (ArticuloInsumo, Categoria, UnidadMedida, File Upload, Imagen).
- *
- * @hook `useState`: Gestiona el estado del formulario, las listas de opciones (categorías, unidades de medida),
- * estados de carga/envío, errores y el archivo de imagen seleccionado.
- * @hook `useEffect`: Carga las opciones iniciales (categorías y unidades de medida) al montar el componente
- * y resetea/precarga el formulario cuando el modal se abre o se cambia el artículo a editar.
- * @hook `useAuth0`: Obtiene el token de autenticación para las operaciones protegidas del API.
- */
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Button, Alert, Spinner, Row, Col } from 'react-bootstrap';
-import { useAuth0 } from '@auth0/auth0-react';
-import { CategoriaService } from '../../services/categoriaService';
+import { Modal, Form, Button, Alert, Spinner, Row, Col, Image } from 'react-bootstrap';
 import { ArticuloInsumoService } from '../../services/articuloInsumoService';
 import { UnidadMedidaService } from '../../services/unidadMedidaService';
 import { FileUploadService } from '../../services/fileUploadService';
 import { ImagenService } from '../../services/imagenService';
-import type { ArticuloInsumo, Categoria, UnidadMedida, ArticuloInsumoResponseDTO } from '../../types/types';
+import { StockInsumoSucursalService } from '../../services/StockInsumoSucursalService';
+import { useSucursal } from '../../context/SucursalContext';
+import type { ArticuloInsumoRequest, UnidadMedidaResponse, ArticuloInsumoResponse, ImagenResponse, StockInsumoSucursalRequest } from '../../types/types';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTimesCircle } from '@fortawesome/free-solid-svg-icons';
+import apiClient from '../../services/apiClient';
 
-// Instanciamos los servicios
-const categoriaService = new CategoriaService();
-const articuloInsumoService = new ArticuloInsumoService();
-const unidadMedidaService = new UnidadMedidaService();
-const fileUploadService = new FileUploadService();
-const imagenService = new ImagenService();
-
-/**
- * @interface ArticuloInsumoFormProps
- * @description Propiedades que el componente `ArticuloInsumoForm` espera recibir.
- * @property {boolean} show - Controla la visibilidad del modal.
- * @property {() => void} handleClose - Función para cerrar el modal.
- * @property {() => void} onSave - Callback que se ejecuta después de guardar exitosamente un artículo insumo.
- * @property {ArticuloInsumo | null} [articuloToEdit] - Objeto ArticuloInsumo a editar. Si es `null` o `undefined`, se asume modo creación.
- */
 interface ArticuloInsumoFormProps {
   show: boolean;
   handleClose: () => void;
   onSave: () => void;
-  articuloToEdit?: ArticuloInsumo | null;
+  articuloToEdit?: ArticuloInsumoResponse | null;
 }
 
+const initialFormData: Omit<ArticuloInsumoRequest, 'categoriaId'> = {
+  denominacion: '',
+  precioVenta: 0,
+  unidadMedidaId: 0,
+  estadoActivo: true,
+  precioCompra: 0,
+  esParaElaborar: false,
+};
+
 const ArticuloInsumoForm: React.FC<ArticuloInsumoFormProps> = ({ show, handleClose, onSave, articuloToEdit }) => {
-  const { getAccessTokenSilently } = useAuth0();
+  const { selectedSucursal } = useSucursal();
 
-  const [formData, setFormData] = useState<ArticuloInsumo>({
-    id: 0,
-    denominacion: '',
-    precioVenta: 0,
-    unidadMedida: { id: 0, denominacion: '' },
-    categoria: { id: 0, denominacion: '', estadoActivo: true },
-    estadoActivo: true,
-    precioCompra: 0,
-    stockActual: 0,
-    stockMinimo: 0,
-    esParaElaborar: false,
-    imagenes: [],
-  });
+  const [formData, setFormData] = useState(initialFormData);
+  const [imagenes, setImagenes] = useState<ImagenResponse[]>([]);
+  const [unidadesMedida, setUnidadesMedida] = useState<UnidadMedidaResponse[]>([]);
+  const [stockActual, setStockActual] = useState<number>(0);
+  const [stockMinimo, setStockMinimo] = useState<number>(0);
+  const [stockId, setStockId] = useState<number | null>(null);
 
-  const [categories, setCategories] = useState<Categoria[]>([]);
-  const [unidadesMedida, setUnidadesMedida] = useState<UnidadMedida[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
-    const loadOptions = async () => {
+    const loadData = async () => {
+      if (!show) return;
+
       setLoadingOptions(true);
+      setError(null);
+
+      if (!selectedSucursal) {
+        setError("Por favor, selecciona una sucursal para gestionar los artículos.");
+        setLoadingOptions(false);
+        return;
+      }
+
       try {
-        const [fetchedCategories, fetchedUnidades] = await Promise.all([
-          categoriaService.getCategorias(),
-          unidadMedidaService.getUnidadesMedida(),
-        ]);
-        setCategories(fetchedCategories);
+        const fetchedUnidades = await UnidadMedidaService.getAll();
         setUnidadesMedida(fetchedUnidades);
+
+        // Si estamos editando, cargamos los datos del insumo Y su stock en la sucursal
+        if (articuloToEdit) {
+          setFormData({
+            denominacion: articuloToEdit.denominacion,
+            precioVenta: articuloToEdit.precioVenta,
+            unidadMedidaId: articuloToEdit.unidadMedida.id,
+            //categoriaId: articuloToEdit.categoria.id,
+            estadoActivo: articuloToEdit.estadoActivo,
+            precioCompra: articuloToEdit.precioCompra ?? 0,
+            esParaElaborar: articuloToEdit.esParaElaborar,
+          });
+          setImagenes(articuloToEdit.imagenes);
+
+          try {
+            // Buscamos el stock específico
+            const stockInfo = await StockInsumoSucursalService.getStockByInsumoAndSucursal(articuloToEdit.id, selectedSucursal.id);
+            setStockActual(stockInfo?.stockActual ?? 0);
+            setStockMinimo(stockInfo?.stockMinimo ?? 0);
+            setStockId(stockInfo?.id ?? null);
+          } catch (stockError) {
+            // Si no existe registro de stock, asumimos que es 0
+            setStockActual(0);
+            setStockMinimo(0);
+            setStockId(null);
+          }
+        } else {
+          // Si estamos creando, reseteamos todo
+          setFormData(initialFormData);
+          setImagenes([]);
+          setStockActual(0);
+          setStockMinimo(0);
+          setStockId(null);
+        }
+
       } catch (err) {
-        setError('Error al cargar categorías y unidades de medida.');
-        console.error('Error al cargar opciones:', err);
+        setError('Error al cargar opciones del formulario.');
       } finally {
         setLoadingOptions(false);
       }
     };
-    loadOptions();
-  }, []);
-
-  useEffect(() => {
-    if (show) {
-      if (articuloToEdit) {
-        setFormData(articuloToEdit);
-      } else {
-        setFormData({
-          id: 0,
-          denominacion: '',
-          precioVenta: 0,
-          unidadMedida: { id: 0, denominacion: '' },
-          categoria: { id: 0, denominacion: '', estadoActivo: true },
-          estadoActivo: true,
-          precioCompra: 0,
-          stockActual: 0,
-          stockMinimo: 0,
-          esParaElaborar: false,
-          imagenes: [],
-        });
-      }
-      setSelectedFile(null);
-      setError(null);
-    }
-  }, [articuloToEdit, show]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    const isCheckbox = (e.target as HTMLInputElement).type === 'checkbox';
+    loadData();
+  }, [show, articuloToEdit, selectedSucursal]);
+  const handleChange = (e: React.ChangeEvent<any>) => {
+    const { name, value, type } = e.target;
+    const isCheckbox = type === 'checkbox';
     const checked = (e.target as HTMLInputElement).checked;
-
     setFormData((prev) => ({
       ...prev,
-      [name]: isCheckbox ? checked : value,
+      [name]: isCheckbox ? checked : (type === 'number' ? parseFloat(value) || 0 : value),
     }));
   };
 
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    const selectedId = Number(value);
-
-    if (name === 'categoriaId') {
-      const selectedCat = categories.find((cat) => cat.id === selectedId);
-      if (selectedCat) {
-        setFormData((prev) => ({
-          ...prev,
-          categoria: selectedCat,
-        }));
-      }
-    } else if (name === 'unidadMedidaId') {
-      const selectedUm = unidadesMedida.find((um) => um.id === selectedId);
-      if (selectedUm) {
-        setFormData((prev) => ({
-          ...prev,
-          unidadMedida: selectedUm,
-        }));
-      }
-    }
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
-    } else {
-      setSelectedFile(null);
-    }
+    setSelectedFile(e.target.files ? e.target.files[0] : null);
   };
 
   const handleDeleteImage = async (imageId: number, filename: string) => {
-    if (!window.confirm('¿Estás seguro de que quieres eliminar esta imagen?')) {
-      return;
-    }
+    if (!window.confirm(`¿Seguro que quieres eliminar la imagen: ${filename}?`)) return;
+
     try {
-      const token = await getAccessTokenSilently();
+      // FIX: Ya no es necesario hacer el substring. Pasamos el nombre del archivo directamente.
+      await ImagenService.delete(imageId);
+      await FileUploadService.deleteFile(filename);
 
-      const fileNameToDetele = filename.substring(filename.lastIndexOf('/') + 1);
+      // Actualizamos el estado local para que la imagen desaparezca de la UI al instante
+      setImagenes(prev => prev.filter(img => img.id !== imageId));
 
-      await imagenService.deleteImageEntity(imageId, token);
-      await fileUploadService.deleteFileFromServer(fileNameToDetele, token);
+      // No mostramos una alerta de éxito aquí, para no interrumpir el flujo de guardado principal.
+      console.log(`Imagen ${filename} eliminada.`);
 
-      setFormData((prev) => ({
-        ...prev,
-        imagenes: prev.imagenes.filter((img) => img.id !== imageId),
-      }));
-      alert('Imagen eliminada con éxito.');
     } catch (err) {
-      console.error('Error al eliminar imagen:', err);
-      const errorMessage = (err as any).response?.data?.message || (err as any).message || 'Error desconocido al eliminar.';
-      setError(`Error al eliminar: ${errorMessage}`);
+      console.error('Error al eliminar la imagen:', err);
+      // Lanzamos el error para que el handleSubmit principal lo capture y muestre un mensaje general.
+      throw new Error('No se pudo eliminar la imagen antigua.');
     }
   };
 
@@ -184,245 +140,122 @@ const ArticuloInsumoForm: React.FC<ArticuloInsumoFormProps> = ({ show, handleClo
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    if (formData.precioCompra && formData.precioVenta && formData.precioCompra > formData.precioVenta) {
+      setError(`El precio de compra ($${formData.precioCompra}) no puede ser mayor que el precio de venta ($${formData.precioVenta}).`);
+      setSubmitting(false); 
+      return; 
+    }
+    const dataToSend: ArticuloInsumoRequest = {
+      ...formData,
+      categoriaId: 4 // ID para la categoría "Insumos"
+    };
+
+    if (!selectedSucursal) {
+      setError("No hay una sucursal seleccionada para guardar el stock.");
+      setSubmitting(false);
+      return;
+    }
 
     try {
-      const token = await getAccessTokenSilently();
+      // 1. Guardamos el artículo insumo (crear o actualizar)
+      const savedArticulo = articuloToEdit
+        ? await ArticuloInsumoService.update(articuloToEdit.id, dataToSend)
+        : await ArticuloInsumoService.create(dataToSend);
 
-      if (!formData.denominacion ||
-        Number(formData.precioVenta) <= 0 ||
-        !formData.categoria?.id || formData.categoria.id === 0 ||
-        !formData.unidadMedida?.id || formData.unidadMedida.id === 0 ||
-        Number(formData.stockActual) < 0 ||
-        Number(formData.precioCompra) < 0 ||
-        Number(formData.stockMinimo) < 0
-      ) {
-        setError('Por favor, completa todos los campos obligatorios correctamente. Asegúrate que Categoría y Unidad de Medida estén seleccionados y los valores numéricos sean válidos.');
-        setSubmitting(false);
-        return;
-      }
-      
-      const payload = {
-        denominacion: formData.denominacion,
-        precioVenta: Number(formData.precioVenta),
-        unidadMedidaId: formData.unidadMedida.id,
-        categoriaId: formData.categoria.id,
-        estadoActivo: formData.estadoActivo,
-        precioCompra: Number(formData.precioCompra),
-        stockActual: Number(formData.stockActual),
-        stockMinimo: Number(formData.stockMinimo),
-        esParaElaborar: formData.esParaElaborar,
+      // 2. Creamos o actualizamos el stock para la sucursal
+      const stockData: StockInsumoSucursalRequest = {
+        stockActual: stockActual,
+        stockMinimo: stockMinimo,
+        articuloInsumoId: savedArticulo.id,
+        sucursalId: selectedSucursal.id
       };
 
-      let savedArticulo: ArticuloInsumoResponseDTO;
-
-      if (articuloToEdit && articuloToEdit.id) {
-        savedArticulo = await articuloInsumoService.updateArticuloInsumo(articuloToEdit.id, payload, token);
-        alert('Artículo Insumo actualizado con éxito.');
-      } else {
-        savedArticulo = await articuloInsumoService.createArticuloInsumo(payload, token);
-        alert('Artículo Insumo creado con éxito.');
+      if (stockId) { // Si ya existía un registro de stock, lo actualizamos
+        await StockInsumoSucursalService.update(stockId, stockData);
+      } else { // Si no, creamos uno nuevo
+        await StockInsumoSucursalService.create(stockData);
       }
 
-      if (selectedFile && savedArticulo && savedArticulo.id) {
-        try {
-          await fileUploadService.uploadFile(selectedFile, token, savedArticulo.id, undefined);
-        } catch (uploadError) {
-          console.error("Error al subir la imagen después de guardar el artículo:", uploadError);
-          setError((prevError) => (prevError ? prevError + " " : "") + "Artículo guardado, pero hubo un error al subir la imagen.");
+      // 3. Manejamos la subida de imagen si hay una nueva
+      if (selectedFile) {
+        // Si hay una imagen nueva, primero intentamos borrar las antiguas.
+        if (imagenes.length > 0) {
+          console.log("Eliminando imágenes antiguas...");
+          // Usamos un for...of para asegurar que se borren secuencialmente
+          for (const img of imagenes) {
+            // El handleDeleteImage ahora es más simple
+            await handleDeleteImage(img.id, img.denominacion.substring(img.denominacion.lastIndexOf('/') + 1));
+          }
         }
+        // Luego, subimos la nueva imagen
+        console.log("Subiendo nueva imagen...");
+        await FileUploadService.uploadFile(selectedFile, { articuloId: savedArticulo.id });
       }
 
+      alert(`Artículo Insumo ${articuloToEdit ? 'actualizado' : 'creado'} con éxito.`);
       onSave();
       handleClose();
     } catch (err: any) {
-      console.error('Error al guardar artículo insumo:', err);
-      const backendError = err.response?.data?.error || err.response?.data?.message || (Array.isArray(err.response?.data?.mensajes) ? err.response.data.mensajes.join(', ') : null);
-      const errorMessage = backendError || err.message || 'Error desconocido al guardar.';
-      setError(`Error al guardar: ${errorMessage}`);
+      setError(`Error al guardar: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal show={show} onHide={handleClose} size="lg">
+    <Modal show={show} onHide={handleClose} size="lg" backdrop="static">
       <Modal.Header closeButton>
-        <Modal.Title>{articuloToEdit ? 'Editar Artículo Insumo' : 'Crear Artículo Insumo'}</Modal.Title>
+        <Modal.Title>{articuloToEdit ? 'Editar Insumo' : 'Nuevo Insumo'} en Sucursal: {selectedSucursal?.nombre ?? ''}</Modal.Title>
       </Modal.Header>
       <Form onSubmit={handleSubmit}>
         <Modal.Body>
-          {loadingOptions ? (
-            <div className="text-center"><Spinner animation="border" /> Cargando opciones...</div>
-          ) : error ? (
-            <Alert variant="danger">{error}</Alert>
-          ) : (
+          {loadingOptions ? <div className="text-center"><Spinner animation="border" /></div> : error ? <Alert variant="danger">{error}</Alert> : (
             <>
-              <Form.Group className="mb-3">
-                <Form.Label>Denominación</Form.Label>
-                <Form.Control
-                  type="text"
-                  name="denominacion"
-                  value={formData.denominacion}
-                  onChange={handleChange}
-                  required
-                />
-              </Form.Group>
-
+              <Form.Group className="mb-3"><Form.Label>Denominación</Form.Label><Form.Control type="text" name="denominacion" value={formData.denominacion} onChange={handleChange} required /></Form.Group>
               <Row>
-                <Col>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Precio Venta</Form.Label>
-                    <Form.Control
-                      type="number"
-                      name="precioVenta"
-                      value={formData.precioVenta}
-                      onChange={handleChange}
-                      step="0.01"
-                      min="0.01"
-                      required
-                    />
-                  </Form.Group>
-                </Col>
-                <Col>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Precio Compra</Form.Label>
-                    <Form.Control
-                      type="number"
-                      name="precioCompra"
-                      value={formData.precioCompra || ''}
-                      onChange={handleChange}
-                      step="0.01"
-                      min="0"
-                    />
-                  </Form.Group>
-                </Col>
+                <Col><Form.Group className="mb-3"><Form.Label>Precio Venta</Form.Label><Form.Control type="number" name="precioVenta" value={formData.precioVenta} onChange={handleChange} step="0.01" min="0.01" required /></Form.Group></Col>
+                <Col><Form.Group className="mb-3"><Form.Label>Precio Compra</Form.Label><Form.Control type="number" name="precioCompra" value={formData.precioCompra || ''} onChange={handleChange} step="0.01" min="0" /></Form.Group></Col>
               </Row>
+              <Row>
+                <Col><Form.Group className="mb-3"><Form.Label>Unidad de Medida</Form.Label><Form.Select name="unidadMedidaId" value={formData.unidadMedidaId} onChange={handleChange} required><option value="">Selecciona una Unidad</option>{unidadesMedida.map((um) => <option key={um.id} value={um.id}>{um.denominacion}</option>)}</Form.Select></Form.Group></Col>              </Row>
+              <Form.Group className="mb-3"><Form.Check type="checkbox" label="Es Para Elaborar" name="esParaElaborar" checked={formData.esParaElaborar} onChange={handleChange} /></Form.Group>
+              <Form.Group className="mb-3"><Form.Check type="checkbox" label="Estado Activo" name="estadoActivo" checked={formData.estadoActivo} onChange={handleChange} /></Form.Group>
 
+              <hr />
+              <h5 className="mb-3">Stock en Sucursal</h5>
               <Row>
                 <Col>
                   <Form.Group className="mb-3">
                     <Form.Label>Stock Actual</Form.Label>
-                    <Form.Control
-                      type="number"
-                      name="stockActual"
-                      value={formData.stockActual || ''}
-                      onChange={handleChange}
-                      step="0.01"
-                      min="0"
-                    />
+                    <Form.Control type="number" value={stockActual} onChange={(e) => setStockActual(Number(e.target.value))} min="0" />
                   </Form.Group>
                 </Col>
                 <Col>
                   <Form.Group className="mb-3">
-                    <Form.Label>Stock Minimo</Form.Label>
-                    <Form.Control
-                      type="number"
-                      name="stockMinimo"
-                      value={formData.stockMinimo || ''}
-                      onChange={handleChange}
-                      step="0.01"
-                      min="0"
-                    />
+                    <Form.Label>Stock Mínimo</Form.Label>
+                    <Form.Control type="number" value={stockMinimo} onChange={(e) => setStockMinimo(Number(e.target.value))} min="0" />
                   </Form.Group>
                 </Col>
               </Row>
-
               <Form.Group className="mb-3">
-                <Form.Label>Unidad de Medida</Form.Label>
-                <Form.Select
-                  name="unidadMedidaId"
-                  value={formData.unidadMedida?.id || ''}
-                  onChange={handleSelectChange}
-                  required
-                  disabled={unidadesMedida.length === 0}
-                >
-                  <option value="">Selecciona una Unidad</option>
-                  {unidadesMedida.map((um) => (
-                    <option key={um.id} value={um.id}>{um.denominacion}</option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-
-              <Form.Group className="mb-3">
-                <Form.Label>Categoría</Form.Label>
-                <Form.Select
-                  name="categoriaId"
-                  value={formData.categoria?.id || ''}
-                  onChange={handleSelectChange}
-                  required
-                  disabled={categories.length === 0}
-                >
-                  <option value="">Selecciona una Categoría</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>{cat.denominacion}</option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-
-              <Form.Group className="mb-3">
-                <Form.Check
-                  type="checkbox"
-                  label="Es Para Elaborar"
-                  name="esParaElaborar"
-                  checked={formData.esParaElaborar}
-                  onChange={handleChange}
-                />
-              </Form.Group>
-
-              <Form.Group className="mb-3">
-                <Form.Check
-                  type="checkbox"
-                  label="Estado Activo"
-                  name="estadoActivo"
-                  checked={formData.estadoActivo}
-                  onChange={handleChange}
-                />
-              </Form.Group>
-
-              <Form.Group className="mb-3">
-                <Form.Label>Imagen del Artículo</Form.Label>
+                <Form.Label>Imagen</Form.Label>
                 <Form.Control type="file" onChange={handleFileChange} accept="image/*" />
-                {selectedFile && <div className="mt-2">Archivo seleccionado: {selectedFile.name}</div>}
-
-                {formData.imagenes && formData.imagenes.length > 0 && (
-                  <div className="mt-3">
-                    <h6>Imagen(es) Actual(es):</h6>
-                    {formData.imagenes.map((img) => (
-                      <div key={img.id} className="d-flex align-items-center mb-2 p-2 border rounded">
-                        <img
-                          src={fileUploadService.getImageUrl(img.denominacion)}
-                          alt="Artículo"
-                          style={{ width: '80px', height: '80px', objectFit: 'cover', border: '1px solid #ddd' }}
-                          className="me-2"
-                        />
-                        <span>{img.denominacion.substring(img.denominacion.lastIndexOf('/') + 1)}</span>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          className="ms-auto"
-                          onClick={() => handleDeleteImage(img.id!, img.denominacion)} // [Cita: 1] AQUÍ ESTÁ EL CAMBIO PRINCIPAL: Se añade `!`
-                        >
-                          <FontAwesomeIcon icon={faTimesCircle} />
-                        </Button>
-                      </div>
-                    ))}
-                    {selectedFile && (
-                      <Alert variant="warning" className="mt-2">
-                        Se ha seleccionado una nueva imagen. Al guardar, esta reemplazará la(s) imagen(es) actual(es).
-                      </Alert>
-                    )}
-                  </div>
-                )}
+                {imagenes.length > 0 && <div className="mt-3">
+                  <h6>Imagen Actual:</h6>
+                  {imagenes.map((img) => <div key={img.id} className="d-flex align-items-center mb-2 p-2 border rounded">
+                    <Image src={`${apiClient.defaults.baseURL}/files/view/${img.denominacion.substring(img.denominacion.lastIndexOf('/') + 1)}`} alt="Artículo" style={{ width: '80px', height: '80px', objectFit: 'cover' }} className="me-2" />
+                    <span className="text-truncate" style={{ maxWidth: '200px' }}>{img.denominacion.substring(img.denominacion.lastIndexOf('/') + 1)}</span>
+                    <Button variant="danger" size="sm" className="ms-auto" onClick={() => handleDeleteImage(img.id, img.denominacion)}><FontAwesomeIcon icon={faTimesCircle} /></Button>
+                  </div>)}
+                </div>}
               </Form.Group>
             </>
           )}
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={handleClose} disabled={submitting}>
-            Cancelar
-          </Button>
+          <Button variant="secondary" onClick={handleClose} disabled={submitting}>Cancelar</Button>
           <Button variant="primary" type="submit" disabled={submitting || loadingOptions}>
-            {submitting ? <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" className="me-2" /> : ''}
+            {submitting && <Spinner as="span" size="sm" className="me-2" />}
             {articuloToEdit ? 'Actualizar' : 'Crear'}
           </Button>
         </Modal.Footer>
